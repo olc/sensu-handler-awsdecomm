@@ -19,7 +19,6 @@
 require 'rubygems' if RUBY_VERSION < '1.9.0'
 require 'sensu-handler'
 require 'aws-sdk'
-require 'spice'
 gem 'mail', '~> 2.4.0'
 require 'mail'
 require 'timeout'
@@ -27,7 +26,7 @@ require 'timeout'
 class AwsDecomm < Sensu::Handler
 
     def delete_sensu_client
-      puts "Sensu client #{@event['client']['name']} is being deleted."
+      puts "Sensu client #{@event['client']['name']} is being deleted"
       retries = 1
       begin
         if api_request(:DELETE, '/clients/' + @event['client']['name']).code != '202' then raise "Sensu API call failed;" end
@@ -43,6 +42,7 @@ class AwsDecomm < Sensu::Handler
     end
 
     def delete_chef_node
+      require 'spice'
       Spice.setup do |s|
         s.server_url   = "http://#{@settings["awsdecomm"]["chef_server_host"]}:#{@settings["awsdecomm"]["chef_server_port"]}"
         s.client_name  = @settings["awsdecomm"]["chef_client_user"]
@@ -80,9 +80,36 @@ class AwsDecomm < Sensu::Handler
       end
     end
 
+    def delete_foreman_node
+      require 'foreman_api'
+      hosts = ForemanApi::Resources::Host.new(:base_url => "#{@settings['awsdecomm']['foreman_server_url']}",
+                                              :username => "#{@settings['awsdecomm']['foreman_client_user']}",
+                                              :password => "#{@settings['awsdecomm']['foreman_client_password']}")
+      retries = 3
+      begin
+        puts "Foreman node #{@event['client']['name']} is being deleted"
+        hosts.destroy('id'=>@event['client']['name'])
+      rescue
+        if (retries -= 1) >= 0
+          sleep 3
+          puts "Deletion failed, retrying to delete foreman node #{@event['client']['name']}"
+          retry
+        else
+          puts @b << "Deleting foreman node #{@event['client']['name']} failed permanently."
+        end
+      end
+    end
+
+  def delete_managed_node
+    case @settings["awsdecomm"]["cfg_mgmt_type"]
+      when 'chef'    then delete_chef_node
+      when 'foreman' then delete_foreman_node
+    end
+  end
+
   def check_ec2
     instance = false
-    %w{ ec2.us-east-1.amazonaws.com ec2.us-west-2.amazonaws.com }.each do |region|
+    %w{ ec2.us-east-1.amazonaws.com ec2.us-west-2.amazonaws.com ec2.eu-west-1.amazonaws.com }.each do |region|
       ec2 = AWS::EC2.new(
         :access_key_id => @settings["awsdecomm"]["access_key_id"],
         :secret_access_key => @settings["awsdecomm"]["secret_access_key"],
@@ -98,7 +125,7 @@ class AwsDecomm < Sensu::Handler
           if i.status.to_s === "terminated" || i.status.to_s === "shutting_down"
             puts "Instance #{@event['client']['name']} is #{i.status}; I will proceed with decommission activities."
             delete_sensu_client
-            delete_chef_node
+            delete_managed_node
           else
             puts "Client #{@event['client']['name']} is #{i.status}"
           end
@@ -109,15 +136,16 @@ class AwsDecomm < Sensu::Handler
           puts e.message + " AWS lookup for #{@event['client']['name']} has failed; trying again."
           retry
         else
-          @b << "AWS instance lookup failed permanently for #{@event['client']['name']}."
+          @b << "AWS instance lookup failed permanently for #{@event['client']['name']} on #{region}. "
           mail
           bail(@b)
         end 
       end
     end
     if instance == false
+      puts "Could not find that instance anywhere on ec2, proceeding with decommission anyway..."
       delete_sensu_client
-      delete_chef_node
+      delete_managed_node
     end
   end
   
@@ -172,7 +200,7 @@ class AwsDecomm < Sensu::Handler
 
   def handle
     @b = ""
-    if @event['action'].eql?('create')
+    if @event['check']['name'].eql?('keepalive') and @event['action'].eql?('create')
       check_ec2
       mail
     end
