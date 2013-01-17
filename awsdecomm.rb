@@ -118,7 +118,8 @@ class AwsDecomm < Sensu::Handler
 
       retries = 1
       begin
-        i = ec2.instances[@event['client']['name']]
+        id = @event['client']['name'][Regexp.new(@settings['awsdecomm']['instance_id_filter']),1] || @event['client']['name']
+        i = ec2.instances[id]
         if i.exists?
           puts "Instance #{@event['client']['name']} exists; Checking state"
           instance = true
