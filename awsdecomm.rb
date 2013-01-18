@@ -128,7 +128,9 @@ class AwsDecomm < Sensu::Handler
             delete_sensu_client
             delete_managed_node
           else
-            puts "Client #{@event['client']['name']} is #{i.status}"
+            @b << "Instance #{@event['client']['name']} is #{i.status}: did not decommission activities."
+            mail
+            bail(@b)
           end
         end
       rescue AWS::Errors::ClientError, AWS::Errors::ServerError => e
