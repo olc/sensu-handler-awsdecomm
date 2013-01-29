@@ -1,7 +1,8 @@
 { 
   "awsdecomm":{
       "cfg_mgmt_type": "foreman",
-      "instance_id_filter": "-([^\.]+)",
+      "match_host_rgx": "\.aws\.example\.com",
+      "instance_id_substr_rgx": "-([^\.]+)",
       "chef_server_host": "127.0.0.1",
       "chef_server_port": "4000",
       "chef_server_version": "0.10.16.2",

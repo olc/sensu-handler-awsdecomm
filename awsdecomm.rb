@@ -118,7 +118,7 @@ class AwsDecomm < Sensu::Handler
 
       retries = 1
       begin
-        id = @event['client']['name'][Regexp.new(@settings['awsdecomm']['instance_id_filter']),1] || @event['client']['name']
+        id = @event['client']['name'][Regexp.new(@settings['awsdecomm']['instance_id_substr_rgx']),1] || @event['client']['name']
         i = ec2.instances[id]
         if i.exists?
           puts "Instance #{@event['client']['name']} exists; Checking state"
@@ -202,6 +202,9 @@ class AwsDecomm < Sensu::Handler
   end
 
   def handle
+    if ! @event['client']['name'].match(/#{@settings['awsdecomm']['match_host_rgx']}/)
+      bail("#{@event['check']['name']}: not under control")
+    end
     @b = ""
     if @event['check']['name'].eql?('keepalive') and @event['action'].eql?('create')
       check_ec2
